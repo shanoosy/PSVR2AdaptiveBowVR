@@ -1,0 +1,46 @@
+
+name: Build Skyrim VR Bow Mod
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v3.30.2
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: x64 }
+      - name: Fetch CommonLibVR
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/alandtse/CommonLibVR $env:GITHUB_WORKSPACE\CommonLibVR
+          cmake -S $env:GITHUB_WORKSPACE\CommonLibVR -B $env:GITHUB_WORKSPACE\CommonLibVR\build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build $env:GITHUB_WORKSPACE\CommonLibVR\build --config Release
+          echo "CommonLibVR_DIR=$env:GITHUB_WORKSPACE\CommonLibVR\build\cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Ensure plugin source exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR")) {
+            throw "Place your plugin source under PSVR2AdaptiveBowVR/ before pushing."
+          }
+      - name: Configure plugin
+        shell: pwsh
+        run: |
+          cmake -S $env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR -B $env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCommonLibVR_DIR="$env:CommonLibVR_DIR"
+      - name: Build plugin
+        shell: pwsh
+        run: cmake --build $env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR\build --config Release
+      - name: Package MO2-ready mod
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\out\mod\Data\SKSE\Plugins" | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR\mod\SKSE\Plugins\Release\PSVR2AdaptiveBowVR.dll" "$env:GITHUB_WORKSPACE\out\mod\Data\SKSE\Plugins\" -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR\mod\SKSE\Plugins\PSVR2AdaptiveBowVR.ini" "$env:GITHUB_WORKSPACE\out\mod\Data\SKSE\Plugins\" -Force
+          Compress-Archive -Path "$env:GITHUB_WORKSPACE\out\mod\*" -DestinationPath "$env:GITHUB_WORKSPACE\PSVR2AdaptiveBowVR_MO2.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PSVR2AdaptiveBowVR_MO2
+          path: PSVR2AdaptiveBowVR_MO2.zip
